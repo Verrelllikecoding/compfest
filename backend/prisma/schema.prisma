@@ -7,9 +7,184 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ------------------------------------------------------------------
-// ENUMS
-// ------------------------------------------------------------------
+model User {
+  id             String          @id @default(uuid())
+  name           String
+  email          String          @unique
+  passwordHash   String          @map("password_hash")
+  phone          String?
+  role           Role
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  activityLogs   ActivityLog[]
+  notifications  Notification[]
+  refreshTokens  RefreshToken[]
+  routes         Route[]
+  schedules      Schedule[]
+  stockMovements StockMovement[] @relation("MovementCreatedBy")
+  vehicles       Vehicle[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @map("token_hash")
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model Warehouse {
+  id        String    @id @default(uuid())
+  name      String
+  address   String
+  latitude  Decimal?  @db.Decimal(9, 6)
+  longitude Decimal?  @db.Decimal(9, 6)
+  createdAt DateTime  @default(now()) @map("created_at")
+  orders    Order[]   @relation("OrderOriginWarehouse")
+  products  Product[]
+
+  @@map("warehouses")
+}
+
+model Product {
+  id             String          @id @default(uuid())
+  warehouseId    String          @map("warehouse_id")
+  sku            String          @unique
+  name           String
+  category       String?
+  unit           String
+  quantity       Int             @default(0)
+  reorderPoint   Int             @default(0) @map("reorder_point")
+  updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at")
+  unitPrice      Decimal         @default(0) @map("unit_price") @db.Decimal(12, 2)
+  warehouse      Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+
+  @@map("products")
+}
+
+model StockMovement {
+  id        String       @id @default(uuid())
+  productId String       @map("product_id")
+  type      MovementType
+  quantity  Int
+  note      String?
+  createdBy String?      @map("created_by")
+  createdAt DateTime     @default(now()) @map("created_at")
+  creator   User?        @relation("MovementCreatedBy", fields: [createdBy], references: [id])
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("stock_movements")
+}
+
+model Vehicle {
+  id          String        @id @default(uuid())
+  plateNumber String        @unique @map("plate_number")
+  type        String
+  capacityKg  Decimal       @map("capacity_kg") @db.Decimal(8, 2)
+  status      VehicleStatus @default(available)
+  driverId    String?       @map("driver_id")
+  routes      Route[]
+  driver      User?         @relation(fields: [driverId], references: [id])
+
+  @@map("vehicles")
+}
+
+model Schedule {
+  id             String         @id @default(uuid())
+  title          String
+  type           ScheduleType
+  assignedTo     String         @map("assigned_to")
+  startTime      DateTime       @map("start_time")
+  endTime        DateTime       @map("end_time")
+  status         ScheduleStatus @default(planned)
+  relatedOrderId String?        @map("related_order_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  assignee       User           @relation(fields: [assignedTo], references: [id])
+  order          Order?         @relation(fields: [relatedOrderId], references: [id])
+
+  @@map("schedules")
+}
+
+model Order {
+  id                 String        @id @default(uuid())
+  customerName       String        @map("customer_name")
+  originWarehouseId  String        @map("origin_warehouse_id")
+  destinationAddress String        @map("destination_address")
+  destinationLat     Decimal       @map("destination_lat") @db.Decimal(9, 6)
+  destinationLng     Decimal       @map("destination_lng") @db.Decimal(9, 6)
+  priority           OrderPriority @default(medium)
+  status             OrderStatus   @default(pending)
+  createdAt          DateTime      @default(now()) @map("created_at")
+  weightKg           Decimal       @default(1) @map("weight_kg") @db.Decimal(8, 2)
+  originWarehouse    Warehouse     @relation("OrderOriginWarehouse", fields: [originWarehouseId], references: [id])
+  routeStops         RouteStop[]
+  schedules          Schedule[]
+
+  @@map("orders")
+}
+
+model Route {
+  id               String      @id @default(uuid())
+  vehicleId        String      @map("vehicle_id")
+  driverId         String      @map("driver_id")
+  routeDate        DateTime    @map("route_date") @db.Date
+  status           RouteStatus @default(planned)
+  totalDistanceKm  Decimal?    @map("total_distance_km") @db.Decimal(8, 2)
+  totalDurationMin Int?        @map("total_duration_min")
+  optimizedByAi    Boolean     @default(true) @map("optimized_by_ai")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  stops            RouteStop[]
+  driver           User        @relation(fields: [driverId], references: [id])
+  vehicle          Vehicle     @relation(fields: [vehicleId], references: [id])
+
+  @@map("routes")
+}
+
+model RouteStop {
+  id            String          @id @default(uuid())
+  routeId       String          @map("route_id")
+  orderId       String          @map("order_id")
+  sequenceNo    Int             @map("sequence_no")
+  eta           DateTime?
+  actualArrival DateTime?       @map("actual_arrival")
+  status        RouteStopStatus @default(pending)
+  order         Order           @relation(fields: [orderId], references: [id])
+  route         Route           @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@map("route_stops")
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  type        NotificationType
+  referenceId String?          @map("reference_id")
+  message     String
+  isRead      Boolean          @default(false) @map("is_read")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id            String             @id @default(uuid())
+  userId        String             @map("user_id")
+  actionType    ActivityAction     @map("action_type")
+  referenceId   String?            @map("reference_id")
+  referenceType ActivityReference? @map("reference_type")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  user          User               @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
 
 enum Role {
   admin
@@ -91,199 +266,4 @@ enum ActivityReference {
   order
   route
   product
-}
-
-// ------------------------------------------------------------------
-// MODELS
-// ------------------------------------------------------------------
-
-model User {
-  id           String   @id @default(uuid())
-  name         String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  phone        String?
-  role         Role
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  refreshTokens  RefreshToken[]
-  stockMovements StockMovement[] @relation("MovementCreatedBy")
-  vehicles       Vehicle[]
-  schedules      Schedule[]
-  routes         Route[]
-  notifications  Notification[]
-  activityLogs   ActivityLog[]
-
-  @@map("users")
-}
-
-model RefreshToken {
-  id        String   @id @default(uuid())
-  tokenHash String   @map("token_hash")
-  userId    String   @map("user_id")
-  expiresAt DateTime @map("expires_at")
-  isRevoked Boolean  @default(false) @map("is_revoked")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("refresh_tokens")
-}
-
-model Warehouse {
-  id        String   @id @default(uuid())
-  name      String
-  address   String
-  latitude  Decimal? @db.Decimal(9, 6)
-  longitude Decimal? @db.Decimal(9, 6)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  products Product[]
-  orders   Order[]   @relation("OrderOriginWarehouse")
-
-  @@map("warehouses")
-}
-
-model Product {
-  id           String   @id @default(uuid())
-  warehouseId  String   @map("warehouse_id")
-  sku          String   @unique
-  name         String
-  category     String?
-  unit         String
-  quantity     Int      @default(0)
-  reorderPoint Int      @default(0) @map("reorder_point")
-  unitPrice    Decimal  @default(0) @map("unit_price") @db.Decimal(12, 2)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
-
-  warehouse      Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  stockMovements StockMovement[]
-
-  @@map("products")
-}
-
-model StockMovement {
-  id        String       @id @default(uuid())
-  productId String       @map("product_id")
-  type      MovementType
-  quantity  Int
-  note      String?
-  createdBy String?      @map("created_by")
-  createdAt DateTime     @default(now()) @map("created_at")
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  creator User?   @relation("MovementCreatedBy", fields: [createdBy], references: [id])
-
-  @@map("stock_movements")
-}
-
-model Vehicle {
-  id           String        @id @default(uuid())
-  plateNumber  String        @unique @map("plate_number")
-  type         String
-  capacityKg   Decimal       @map("capacity_kg") @db.Decimal(8, 2)
-  status       VehicleStatus @default(available)
-  driverId     String?       @map("driver_id")
-
-  driver User?   @relation(fields: [driverId], references: [id])
-  routes Route[]
-
-  @@map("vehicles")
-}
-
-model Schedule {
-  id              String         @id @default(uuid())
-  title           String
-  type            ScheduleType
-  assignedTo      String         @map("assigned_to")
-  startTime       DateTime       @map("start_time")
-  endTime         DateTime       @map("end_time")
-  status          ScheduleStatus @default(planned)
-  relatedOrderId  String?        @map("related_order_id")
-  createdAt       DateTime       @default(now()) @map("created_at")
-
-  assignee User   @relation(fields: [assignedTo], references: [id])
-  order    Order? @relation(fields: [relatedOrderId], references: [id])
-
-  @@map("schedules")
-}
-
-model Order {
-  id                  String        @id @default(uuid())
-  customerName        String        @map("customer_name")
-  originWarehouseId   String        @map("origin_warehouse_id")
-  destinationAddress  String        @map("destination_address")
-  destinationLat      Decimal       @map("destination_lat") @db.Decimal(9, 6)
-  destinationLng      Decimal       @map("destination_lng") @db.Decimal(9, 6)
-  priority            OrderPriority @default(medium)
-  weightKg            Decimal       @default(1) @map("weight_kg") @db.Decimal(8, 2)
-  status              OrderStatus   @default(pending)
-  createdAt           DateTime      @default(now()) @map("created_at")
-
-  originWarehouse Warehouse   @relation("OrderOriginWarehouse", fields: [originWarehouseId], references: [id])
-  schedules       Schedule[]
-  routeStops      RouteStop[]
-
-  @@map("orders")
-}
-
-model Route {
-  id                String      @id @default(uuid())
-  vehicleId         String      @map("vehicle_id")
-  driverId          String      @map("driver_id")
-  routeDate         DateTime    @map("route_date") @db.Date
-  status            RouteStatus @default(planned)
-  totalDistanceKm   Decimal?    @map("total_distance_km") @db.Decimal(8, 2)
-  totalDurationMin  Int?        @map("total_duration_min")
-  optimizedByAi     Boolean     @default(true) @map("optimized_by_ai")
-  createdAt         DateTime    @default(now()) @map("created_at")
-
-  vehicle Vehicle     @relation(fields: [vehicleId], references: [id])
-  driver  User        @relation(fields: [driverId], references: [id])
-  stops   RouteStop[]
-
-  @@map("routes")
-}
-
-model RouteStop {
-  id             String          @id @default(uuid())
-  routeId        String          @map("route_id")
-  orderId        String          @map("order_id")
-  sequenceNo     Int             @map("sequence_no")
-  eta            DateTime?
-  actualArrival  DateTime?       @map("actual_arrival")
-  status         RouteStopStatus @default(pending)
-
-  route Route @relation(fields: [routeId], references: [id], onDelete: Cascade)
-  order Order @relation(fields: [orderId], references: [id])
-
-  @@map("route_stops")
-}
-
-model Notification {
-  id          String            @id @default(uuid())
-  userId      String            @map("user_id")
-  type        NotificationType
-  referenceId String?           @map("reference_id")
-  message     String
-  isRead      Boolean           @default(false) @map("is_read")
-  createdAt   DateTime          @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
-}
-
-model ActivityLog {
-  id             String             @id @default(uuid())
-  userId         String             @map("user_id")
-  actionType     ActivityAction     @map("action_type")
-  referenceId    String?            @map("reference_id")
-  referenceType  ActivityReference? @map("reference_type")
-  createdAt      DateTime           @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("activity_logs")
 }

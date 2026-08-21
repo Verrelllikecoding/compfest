@@ -541,12 +541,6 @@ if (warehouse_code === undefined) {
       warehouse_code,
     };
 
-    console.log(
-      "AI FORECAST PAYLOAD:"
-    );
-
-    console.log(aiPayload);
-
     // ----------------------------------------------------------
     // 15. Hubungi AI service
     // ----------------------------------------------------------
@@ -556,11 +550,6 @@ if (warehouse_code === undefined) {
     "http://127.0.0.1:8000";
 
     let predictedDemand: number;
-
-    console.log("========== AI REQUEST ==========");
-console.log("URL:", `${aiServiceUrl}/predict`);
-console.log("PAYLOAD:", aiPayload);
-console.log("================================");
 
     try {
       const response =

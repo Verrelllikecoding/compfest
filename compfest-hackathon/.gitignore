@@ -36,6 +36,14 @@ dist-ssr
 **/.venv/
 **/__pycache__/
 **/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# Local data and generated ML models
+**/*.pkl
+**/*.joblib
+**/*.sqlite
+**/*.sqlite3
 
 # Build
 **/dist/

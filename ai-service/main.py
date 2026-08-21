@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Stock Forecast AI API",
@@ -64,22 +68,15 @@ def predict(data: ForecastInput):
             columns=expected_features
         )
 
-        print("EXPECTED ORDER:")
-        print(expected_features)
-
-        print("INPUT:")
-        print(features)
-
         prediction = model.predict(features)[0]
 
         return {
             "predicted_demand": round(float(prediction), 2)
         }
 
-    except Exception as e:
-        print("PREDICTION ERROR:")
-        print(repr(e))
+    except Exception:
+        logger.exception("Stock forecast prediction failed")
 
         return {
-            "error": str(e)
+            "error": "Prediction failed"
         }

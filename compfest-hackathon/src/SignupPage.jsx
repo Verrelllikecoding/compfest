@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import "./AuthPage.css";
-import { Boxes } from "lucide-react";
+import { Boxes, Sparkles } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext.jsx";
 
@@ -17,13 +17,12 @@ export default function SignUpPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+
     try {
       await register({
         name: nameRef.current.value,
         email: emailRef.current.value,
         password: passwordRef.current.value,
-        // role default "dispatcher" di backend kalau tidak dikirim.
-        // Nanti kalau perlu, tambahkan dropdown pilih role di sini.
       });
       navigate("/dashboard");
     } catch (err) {
@@ -35,7 +34,6 @@ export default function SignUpPage() {
 
   return (
     <div className="auth-page">
-      {/* ---------- panel visual kiri ---------- */}
       <div
         className="auth-visual"
         style={{ "--stripe-a": "#FFB648", "--stripe-b": "#2FD4C4" }}
@@ -46,18 +44,30 @@ export default function SignUpPage() {
           </span>
           OPSERA
         </div>
+
         <div className="auth-stripe auth-stripe--top" />
         <div className="auth-stripe auth-stripe--bottom" />
+
+<div className="auth-visual__hero">
+  <span className="auth-visual__eyebrow">
+    <Sparkles size={12} />
+    Build Your Workspace
+  </span>
+
+  <h1>Start organized.</h1>
+
+  <p>
+    Build a smarter workspace for scheduling, routing, and warehouse operations.
+  </p>
+</div>
       </div>
 
-      {/* ---------- form kanan ---------- */}
       <div className="auth-form-wrap">
         <form className="auth-form" onSubmit={handleSubmit}>
           <span className="auth-eyebrow">Introduction</span>
           <h2>Buat Akun Baru!</h2>
           <p>
-            Daftar untuk mulai mengorkestrasi jadwal, rute pengiriman, dan
-            gudang Anda dalam satu workspace.
+            Daftar dan mulai kelola operasional Anda dalam satu workspace.
           </p>
 
           {error && <div className="auth-error">{error}</div>}
@@ -98,10 +108,6 @@ export default function SignUpPage() {
             {loading ? "Memproses..." : "Daftar Sekarang"}
           </button>
 
-          <Link to="/login" className="auth-link">
-            Sudah punya akun?
-          </Link>
-
           <div className="auth-divider">
             <span>atau</span>
           </div>
@@ -112,8 +118,7 @@ export default function SignUpPage() {
           </button>
 
           <p className="auth-switch">
-            Sudah punya akun?{" "}
-            <Link to="/login">Masuk di sini</Link>
+            Sudah punya akun? <Link to="/login">Masuk di sini</Link>
           </p>
         </form>
       </div>

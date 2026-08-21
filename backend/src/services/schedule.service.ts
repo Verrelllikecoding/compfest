@@ -5,6 +5,9 @@ import {
 
 import { scheduleRepository } from "../repositories/schedule.repository";
 import { prisma } from "../lib/prisma";
+import {
+  requestBestSchedulingSlot,
+} from "./scheduling-ai.service";
 
 class ScheduleNotFoundError extends Error {
   status = 404;
@@ -351,7 +354,7 @@ async recommendBestSlot(input: {
   durationMinutes: number;
 }) {
   /*
-   * Ambil semua driver aktif.
+   * 1. Ambil semua driver aktif.
    */
   const drivers = await prisma.user.findMany({
     where: {
@@ -362,7 +365,10 @@ async recommendBestSlot(input: {
     select: {
       id: true,
       name: true,
-      email: true,
+    },
+
+    orderBy: {
+      name: "asc",
     },
   });
 
@@ -373,13 +379,12 @@ async recommendBestSlot(input: {
   }
 
   /*
-   * Jam operasional:
-   * 08:00 - 18:00
+   * 2. Tentukan tanggal yang akan dianalisis.
    */
   const startOfDay = new Date(input.date);
 
   startOfDay.setHours(
-    8,
+    0,
     0,
     0,
     0
@@ -388,17 +393,17 @@ async recommendBestSlot(input: {
   const endOfDay = new Date(input.date);
 
   endOfDay.setHours(
-    18,
-    0,
-    0,
-    0
+    23,
+    59,
+    59,
+    999
   );
 
-  const recommendations = [];
-
   /*
-   * Evaluasi setiap driver.
+   * 3. Ambil jadwal setiap driver.
    */
+  const driverPayload = [];
+
   for (const driver of drivers) {
     const schedules =
       await prisma.schedule.findMany({
@@ -411,8 +416,13 @@ async recommendBestSlot(input: {
 
           startTime: {
             gte: startOfDay,
-            lt: endOfDay,
+            lte: endOfDay,
           },
+        },
+
+        select: {
+          startTime: true,
+          endTime: true,
         },
 
         orderBy: {
@@ -420,193 +430,55 @@ async recommendBestSlot(input: {
         },
       });
 
-    /*
-     * Hitung total workload.
-     */
-    let workloadMinutes = 0;
+    driverPayload.push({
+      id: driver.id,
 
-    for (const schedule of schedules) {
-      const duration =
-        schedule.endTime.getTime() -
-        schedule.startTime.getTime();
+      name: driver.name,
 
-      workloadMinutes +=
-        duration / 1000 / 60;
-    }
-
-    /*
-     * Cari slot pertama yang tersedia.
-     */
-    let candidateStart =
-      new Date(startOfDay);
-
-    let foundSlot = null;
-
-    for (const schedule of schedules) {
-      const candidateEnd =
-        new Date(
-          candidateStart.getTime() +
-            input.durationMinutes *
-              60 *
-              1000
-        );
-
-      if (
-        candidateEnd <=
-        schedule.startTime
-      ) {
-        foundSlot = {
+      schedules: schedules.map(
+        (schedule) => ({
           startTime:
-            candidateStart,
+            schedule.startTime.toISOString(),
 
           endTime:
-            candidateEnd,
-        };
-
-        break;
-      }
-
-      if (
-        schedule.endTime >
-        candidateStart
-      ) {
-        candidateStart =
-          new Date(
-            schedule.endTime
-          );
-      }
-    }
-
-    /*
-     * Kalau belum ketemu,
-     * cek slot setelah schedule terakhir.
-     */
-    if (!foundSlot) {
-      const candidateEnd =
-        new Date(
-          candidateStart.getTime() +
-            input.durationMinutes *
-              60 *
-              1000
-        );
-
-      if (
-        candidateEnd <=
-        endOfDay
-      ) {
-        foundSlot = {
-          startTime:
-            candidateStart,
-
-          endTime:
-            candidateEnd,
-        };
-      }
-    }
-
-    /*
-     * Driver tidak punya slot.
-     */
-    if (!foundSlot) {
-      continue;
-    }
-
-    /*
-     * Scoring sederhana.
-     *
-     * Semakin sedikit workload,
-     * semakin tinggi score.
-     */
-    const workloadScore =
-      Math.max(
-        0,
-        100 -
-          workloadMinutes / 5
-      );
-
-    /*
-     * Semakin awal slot tersedia,
-     * semakin tinggi availability score.
-     */
-    const minutesFromStart =
-      (foundSlot.startTime.getTime() -
-        startOfDay.getTime()) /
-      1000 /
-      60;
-
-    const availabilityScore =
-      Math.max(
-        0,
-        100 -
-          minutesFromStart / 6
-      );
-
-    /*
-     * Weighted score.
-     */
-    const finalScore =
-      workloadScore * 0.6 +
-      availabilityScore * 0.4;
-
-    recommendations.push({
-      assignedTo: driver.id,
-
-      assigneeName:
-        driver.name,
-
-      startTime:
-        foundSlot.startTime,
-
-      endTime:
-        foundSlot.endTime,
-
-      durationMinutes:
-        input.durationMinutes,
-
-      taskCount:
-        schedules.length,
-
-      workloadMinutes:
-        Math.round(
-          workloadMinutes
-        ),
-
-      score:
-        Math.round(
-          finalScore
-        ),
-
-      reason:
-        `Driver memiliki ${schedules.length} task dengan workload ${Math.round(
-          workloadMinutes
-        )} menit dan slot tersedia tanpa konflik.`,
+            schedule.endTime.toISOString(),
+        })
+      ),
     });
   }
 
-  if (
-    recommendations.length === 0
-  ) {
+  /*
+   * 4. Kirim data ke Python Scheduling Service.
+   */
+  try {
+    const aiResponse =
+      await requestBestSchedulingSlot({
+        date:
+          input.date.toISOString(),
+
+        durationMinutes:
+          input.durationMinutes,
+
+        drivers:
+          driverPayload,
+      });
+
+    if (
+      aiResponse.success &&
+      aiResponse.data
+    ) {
+      return aiResponse.data;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(
+      "Scheduling AI service gagal:",
+      error
+    );
+
     return null;
   }
-
-  /*
-   * Score terbesar = recommendation terbaik.
-   */
-  recommendations.sort(
-    (a, b) =>
-      b.score - a.score
-  );
-
-  return {
-    best:
-      recommendations[0],
-
-    alternatives:
-      recommendations.slice(
-        1,
-        4
-      ),
-  };
 },
 
 };

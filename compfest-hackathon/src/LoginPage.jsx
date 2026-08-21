@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import "./AuthPage.css";
-import { Boxes } from "lucide-react";
+import { Boxes, Sparkles, Truck } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext.jsx";
 
@@ -16,6 +16,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+
     try {
       await login(emailRef.current.value, passwordRef.current.value);
       navigate("/dashboard");
@@ -28,7 +29,6 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      {/* ---------- panel visual kiri ---------- */}
       <div
         className="auth-visual"
         style={{ "--stripe-a": "#5B4FE9", "--stripe-b": "#FF7A68" }}
@@ -39,18 +39,31 @@ export default function LoginPage() {
           </span>
           OPSERA
         </div>
+
         <div className="auth-stripe auth-stripe--top" />
         <div className="auth-stripe auth-stripe--bottom" />
+
+        <div className="auth-visual__hero">
+          <span className="auth-visual__eyebrow">
+            <Sparkles size={12} />
+            AI-Powered Operations
+          </span>
+
+          <h1>Operate smarter.</h1>
+
+          <p>
+            Scheduling, routes, and warehouse operations in one intelligent workspace.
+          </p>
+
+        </div>
       </div>
 
-      {/* ---------- form kanan ---------- */}
       <div className="auth-form-wrap">
         <form className="auth-form" onSubmit={handleSubmit}>
           <span className="auth-eyebrow">Introduction</span>
           <h2>Selamat Datang Kembali!</h2>
           <p>
-            Masuk untuk memantau jadwal, rute pengiriman, dan gudang Anda
-            dari satu dashboard real-time.
+            Masuk untuk memantau operasional Anda dari satu dashboard.
           </p>
 
           {error && <div className="auth-error">{error}</div>}
@@ -93,8 +106,7 @@ export default function LoginPage() {
           </button>
 
           <p className="auth-switch">
-            Belum punya akun?{" "}
-            <Link to="/signup">Daftar di sini</Link>
+            Belum punya akun? <Link to="/signup">Daftar di sini</Link>
           </p>
         </form>
       </div>

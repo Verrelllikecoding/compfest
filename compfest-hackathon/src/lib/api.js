@@ -277,4 +277,11 @@ export const scheduleApi = {
   ),
 };
 
+export const dashboardApi = {
+  summary: (accessToken) =>
+    request("/dashboard/summary", {
+      accessToken,
+    }),
+};
+
 export { request };

@@ -6,8 +6,14 @@ const registerSchema = z.object({
   name: z.string().min(2, "Nama minimal 2 karakter"),
   email: z.string().email("Email tidak valid"),
   password: z.string().min(8, "Password minimal 8 karakter"),
-  role: z.enum(["admin", "dispatcher", "driver", "warehouse_staff"]).default("dispatcher"),
-});
+}).strict();
+
+const privilegedRegisterSchema = z.object({
+  name: z.string().min(2, "Nama minimal 2 karakter"),
+  email: z.string().email("Email tidak valid"),
+  password: z.string().min(8, "Password minimal 8 karakter"),
+  role: z.enum(["admin", "dispatcher", "driver", "warehouse_staff"]),
+}).strict();
 
 const loginSchema = z.object({
   email: z.string().email("Email tidak valid"),
@@ -31,6 +37,22 @@ export const authController = {
       const { accessToken, refreshToken } = await authService.register(input);
       setRefreshCookie(res, refreshToken);
       res.status(201).json({ success: true, data: { accessToken }, message: "Registrasi berhasil" });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async registerPrivileged(req: Request, res: Response, next: NextFunction) {
+    try {
+      const input = privilegedRegisterSchema.parse(req.body);
+      const user = await authService.registerPrivileged(input);
+      const { passwordHash, ...safeUser } = user;
+
+      res.status(201).json({
+        success: true,
+        data: { user: safeUser },
+        message: "User berhasil dibuat",
+      });
     } catch (err) {
       next(err);
     }

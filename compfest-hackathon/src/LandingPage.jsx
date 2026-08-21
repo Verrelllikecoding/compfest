@@ -6,7 +6,6 @@ import {
   Boxes,
   Menu,
   X,
-  ChevronDown,
   Bell,
   Settings,
   User,
@@ -32,11 +31,6 @@ const HERO_IMAGE = HeroImg; // contoh: "/assets/warehouse-yard.jpg"
 
 const NAV_LINKS = ["Command", "Flow", "Insights", "Reports"];
  
-const OVERVIEW_ROWS = [
-  { label: "Shipments Today", value: "103", dot: "amber" },
-  { label: "Delivery Rate", value: "91%", dot: "teal" },
-  { label: "Active Warehouses", value: "164", dot: "white" },
-];
  
 const ALERT_ROWS = [
   { label: "Late Shipments", value: "64.34" },
@@ -49,12 +43,6 @@ const TRACKING_STEPS = [
   { label: "Destination", value: "New York, NY" },
 ];
  
-const PERF_BARS = [
-  { h: 62, color: "amber" },
-  { h: 88, color: "white" },
-  { h: 74, color: "amber" },
-  { h: 95, color: "white" },
-];
  
 // Placeholder nama partner — ganti dengan partner asli yang sudah
 // memberi izin logonya dipakai (jangan pakai logo brand pihak ketiga
@@ -166,7 +154,6 @@ export default function OpseraExactHero() {
   const [activeNav, setActiveNav] = useState("Command");
   const [activeUtility, setActiveUtility] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [overviewPeriod, setOverviewPeriod] = useState("Today");
   const [compactMode, setCompactMode] = useState(false);
   const [liveUpdates, setLiveUpdates] = useState(true);
 
@@ -215,11 +202,6 @@ export default function OpseraExactHero() {
     setNavOpen(false);
   };
 
-  const cycleOverviewPeriod = () => {
-    const periods = ["Today", "This Week", "This Month"];
-    const currentIndex = periods.indexOf(overviewPeriod);
-    setOverviewPeriod(periods[(currentIndex + 1) % periods.length]);
-  };
 
   return (
     <div className={`oh-root ${compactMode ? "oh-root--compact" : ""}`}>
@@ -423,9 +405,7 @@ export default function OpseraExactHero() {
         <div className="oh-copy">
           <span className="oh-eyebrow">AI-Powered Operations</span>
           <h1>
-            Satu layar untuk
-            <br />
-            seluruh operasional Anda.
+            Satu layar untuk seluruh operasional Anda.
           </h1>
           <p>Jadwal, rute pengiriman, dan gudang — dipantau AI, secara real-time.</p>
           <Link to="/signup" className="oh-cta">
@@ -445,56 +425,58 @@ export default function OpseraExactHero() {
 
         {/* ---------- floating cards ---------- */}
         <div className="oh-card oh-card--shipments">
-          <div className="oh-card__head"><span>Active Shipments</span></div>
-          <div className="oh-progress"><div className="oh-progress__fill" style={{ width: "72%" }} /></div>
+          <div className="oh-card__head">
+            <span>Active Shipments</span>
+          </div>
+          <div className="oh-progress">
+            <div className="oh-progress__fill" style={{ width: "72%" }} />
+          </div>
           <span className="oh-card__tag">72%</span>
         </div>
 
-        <div className="oh-card oh-card--overview">
+        <button
+          type="button"
+          className="oh-card oh-card--alert oh-card--button"
+          onClick={() => openUtility("notifications")}
+        >
           <div className="oh-card__head">
-            <span>Command Overview</span>
-            <button type="button" className="oh-card__dropdown" onClick={cycleOverviewPeriod}>
-              {overviewPeriod} <ChevronDown size={12} />
-            </button>
+            <span>System Alert</span>
+            <span className="oh-card__tag oh-card__tag--dark">8m–8.5m</span>
           </div>
-          {OVERVIEW_ROWS.map((r) => (
+          {ALERT_ROWS.map((r) => (
             <div className="oh-row" key={r.label}>
-              <span className={`oh-dot oh-dot--${r.dot}`} />
               <span className="oh-row__label">{r.label}</span>
               <b>{r.value}</b>
             </div>
           ))}
-        </div>
-
-        <button type="button" className="oh-card oh-card--alert oh-card--button" onClick={() => openUtility("notifications")}>
-          <div className="oh-card__head"><span>System Alert</span><span className="oh-card__tag oh-card__tag--dark">8m–8.5m</span></div>
-          {ALERT_ROWS.map((r) => <div className="oh-row" key={r.label}><span className="oh-row__label">{r.label}</span><b>{r.value}</b></div>)}
         </button>
 
-        <button type="button" className="oh-card oh-card--flow oh-card--button" onClick={() => handleNavClick("Flow")}>
-          <div className="oh-card__head"><span>Live Logistic Flow</span></div>
-          <div className="oh-flow-graph"><svg viewBox="0 0 200 60" preserveAspectRatio="none"><polyline points="0,45 25,30 50,38 75,15 100,28 125,10 150,22 175,8 200,18" className="oh-flow-graph__line" /></svg></div>
-          <div className="oh-progress oh-progress--sm"><div className="oh-progress__fill" style={{ width: "48%" }} /></div>
-          <span className="oh-card__meta">Available Space · 1016 / 2102</span>
-        </button>
-
-        <button type="button" className="oh-card oh-card--tracking oh-card--button" onClick={() => setActiveUtility("search")}>
-          <div className="oh-card__head"><span>Tracking Details</span></div>
-          <div className="oh-tracking__id"><span>#521-874-KPL</span><span className="oh-card__tag">In Transit</span></div>
+        <button
+          type="button"
+          className="oh-card oh-card--tracking oh-card--button"
+          onClick={() => setActiveUtility("search")}
+        >
+          <div className="oh-card__head">
+            <span>Tracking Details</span>
+          </div>
+          <div className="oh-tracking__id">
+            <span>#521-874-KPL</span>
+            <span className="oh-card__tag">In Transit</span>
+          </div>
           <div className="oh-tracking__steps">
             {TRACKING_STEPS.map((s, i) => (
               <div className="oh-tracking__step" key={s.label}>
-                <span className={`oh-tracking__marker ${i === 0 ? "oh-tracking__marker--active" : ""}`} />
-                <div><div className="oh-tracking__label">{s.label}</div><div className="oh-tracking__value">{s.value}</div></div>
+                <span
+                  className={`oh-tracking__marker ${
+                    i === 0 ? "oh-tracking__marker--active" : ""
+                  }`}
+                />
+                <div>
+                  <div className="oh-tracking__label">{s.label}</div>
+                  <div className="oh-tracking__value">{s.value}</div>
+                </div>
               </div>
             ))}
-          </div>
-        </button>
-
-        <button type="button" className="oh-card oh-card--perf oh-card--button" onClick={() => handleNavClick("Insights")}>
-          <div className="oh-card__head"><span>Performance Insights</span></div>
-          <div className="oh-bars">
-            {PERF_BARS.map((b, i) => <div className="oh-bars__col" key={i}><div className={`oh-bars__bar oh-bars__bar--${b.color}`} style={{ height: `${b.h}%` }} /></div>)}
           </div>
         </button>
       </section>

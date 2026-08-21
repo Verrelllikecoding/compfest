@@ -1,9 +1,9 @@
 import jwt from "jsonwebtoken";
+import { getRequiredEnvironmentVariable } from "./env";
 
-const ACCESS_SECRET = process.env.JWT_SECRET as string;
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET as string;
 const ACCESS_EXPIRY = process.env.JWT_EXPIRY || "15m";
 const REFRESH_EXPIRY = process.env.JWT_REFRESH_EXPIRY || "7d";
+const JWT_ALGORITHM: jwt.Algorithm = "HS256";
 
 export interface JwtPayload {
   sub: string; // user id
@@ -11,21 +11,43 @@ export interface JwtPayload {
 }
 
 export function signAccessToken(payload: JwtPayload) {
-  const options: jwt.SignOptions = { expiresIn: ACCESS_EXPIRY as jwt.SignOptions["expiresIn"] };
-  return jwt.sign(payload, ACCESS_SECRET, options);
+  const options: jwt.SignOptions = {
+    algorithm: JWT_ALGORITHM,
+    expiresIn: ACCESS_EXPIRY as jwt.SignOptions["expiresIn"],
+  };
+  return jwt.sign(
+    payload,
+    getRequiredEnvironmentVariable("JWT_SECRET"),
+    options
+  );
 }
 
 export function signRefreshToken(payload: JwtPayload) {
-  const options: jwt.SignOptions = { expiresIn: REFRESH_EXPIRY as jwt.SignOptions["expiresIn"] };
-  return jwt.sign(payload, REFRESH_SECRET, options);
+  const options: jwt.SignOptions = {
+    algorithm: JWT_ALGORITHM,
+    expiresIn: REFRESH_EXPIRY as jwt.SignOptions["expiresIn"],
+  };
+  return jwt.sign(
+    payload,
+    getRequiredEnvironmentVariable("JWT_REFRESH_SECRET"),
+    options
+  );
 }
 
 export function verifyAccessToken(token: string): JwtPayload {
-  return jwt.verify(token, ACCESS_SECRET) as JwtPayload;
+  return jwt.verify(
+    token,
+    getRequiredEnvironmentVariable("JWT_SECRET"),
+    { algorithms: [JWT_ALGORITHM] }
+  ) as JwtPayload;
 }
 
 export function verifyRefreshToken(token: string): JwtPayload {
-  return jwt.verify(token, REFRESH_SECRET) as JwtPayload;
+  return jwt.verify(
+    token,
+    getRequiredEnvironmentVariable("JWT_REFRESH_SECRET"),
+    { algorithms: [JWT_ALGORITHM] }
+  ) as JwtPayload;
 }
 
 // Refresh token expiry dalam bentuk Date, dipakai buat kolom expires_at

@@ -14,6 +14,10 @@ import { routeRouter } from "./routes/route.routes";
 import { scheduleRouter } from "./routes/schedule.routes";
 
 import { errorHandler } from "./middlewares/error.middleware";
+import { dashboardRouter } from "./routes/dashboard.routes";
+import { validateBackendEnvironment } from "./utils/env";
+
+validateBackendEnvironment();
 
 const app = express();
 
@@ -58,6 +62,11 @@ app.use(
 app.use(
   "/api/v1/schedules",
   scheduleRouter
+);
+
+app.use(
+  "/api/v1/dashboard",
+  dashboardRouter
 );
 
 // HARUS terakhir

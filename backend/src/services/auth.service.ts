@@ -26,7 +26,7 @@ class AuthError extends Error {
 }
 
 export const authService = {
-  async register(input: { name: string; email: string; password: string; role: Role }) {
+  async register(input: { name: string; email: string; password: string }) {
     const existing = await userRepository.findByEmail(input.email);
     if (existing) {
       throw new AuthError("Email sudah terdaftar", 409);
@@ -37,10 +37,30 @@ export const authService = {
       name: input.name,
       email: input.email,
       passwordHash,
-      role: input.role,
+      role: "driver",
     });
 
     return authService.issueTokens(user.id, user.role);
+  },
+
+  async registerPrivileged(input: {
+    name: string;
+    email: string;
+    password: string;
+    role: Role;
+  }) {
+    const existing = await userRepository.findByEmail(input.email);
+    if (existing) {
+      throw new AuthError("Email sudah terdaftar", 409);
+    }
+
+    const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+    return userRepository.create({
+      name: input.name,
+      email: input.email,
+      passwordHash,
+      role: input.role,
+    });
   },
 
   async login(email: string, password: string) {
