@@ -217,6 +217,7 @@ model Order {
   destinationLat      Decimal       @map("destination_lat") @db.Decimal(9, 6)
   destinationLng      Decimal       @map("destination_lng") @db.Decimal(9, 6)
   priority            OrderPriority @default(medium)
+  weightKg            Decimal       @default(1) @map("weight_kg") @db.Decimal(8, 2)
   status              OrderStatus   @default(pending)
   createdAt           DateTime      @default(now()) @map("created_at")
 

@@ -13,6 +13,37 @@ export const userRepository = {
   create(data: { name: string; email: string; passwordHash: string; role: Role }) {
     return prisma.user.create({ data });
   },
+
+  findAll() {
+  return prisma.user.findMany({
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+},
+
+findAssignableUsers() {
+  return prisma.user.findMany({
+    where: {
+      isActive: true,
+      role: {
+        in: ["driver", "warehouse_staff"],
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      role: true,
+      isActive: true,
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+},
+
 };
 
 export const refreshTokenRepository = {

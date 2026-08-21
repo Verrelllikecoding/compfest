@@ -13,6 +13,7 @@ class BadRequestError extends Error {
   status = 400;
 }
 
+
 export const warehouseService = {
   listWarehouses: () => warehouseRepository.findAll(),
 
@@ -33,29 +34,66 @@ export const warehouseService = {
     return productRepository.findByWarehouse(warehouseId);
   },
 
-  async createProduct(
-    warehouseId: string,
-    input: {
-      sku: string;
-      name: string;
-      category?: string;
-      unit: string;
-      quantity?: number;
-      reorderPoint?: number;
-      unitPrice?: number;
-    }
-  ) {
-    const warehouse = await warehouseRepository.findById(warehouseId);
-
-    if (!warehouse) {
-      throw new NotFoundError("Gudang tidak ditemukan");
-    }
-
-    return productRepository.create({
-      warehouseId,
-      ...input,
-    });
+async createProduct(
+  warehouseId: string,
+  input: {
+    sku: string;
+    name: string;
+    category?: string;
+    unit: string;
+    quantity?: number;
+    reorderPoint?: number;
+    unitPrice?: number;
   },
+  userId: string
+) {
+  const warehouse =
+    await warehouseRepository.findById(warehouseId);
+
+  if (!warehouse) {
+    throw new NotFoundError("Gudang tidak ditemukan");
+  }
+
+  const initialQuantity = input.quantity ?? 0;
+
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.create({
+      data: {
+        warehouseId,
+        sku: input.sku,
+        name: input.name,
+        category: input.category,
+        unit: input.unit,
+        quantity: initialQuantity,
+        reorderPoint: input.reorderPoint ?? 0,
+        unitPrice: input.unitPrice ?? 0,
+      },
+    });
+
+    if (initialQuantity > 0) {
+      await tx.stockMovement.create({
+        data: {
+          productId: product.id,
+          type: "in",
+          quantity: initialQuantity,
+          note: "Initial stock when product was created",
+          createdBy: userId,
+        },
+      });
+
+      await tx.activityLog.create({
+        data: {
+          userId,
+          actionType: "stock_movement",
+          referenceId: product.id,
+          referenceType: "product",
+        },
+      });
+    }
+
+    return product;
+  });
+},
 
   async listLowStock() {
     const products = await productRepository.findLowStock();
@@ -72,59 +110,112 @@ export const warehouseService = {
   },
 
   // Catat pergerakan stok sekaligus update quantity produk.
-  async recordMovement(
-    productId: string,
-    input: {
-      type: "in" | "out" | "adjustment";
-      quantity: number;
-      note?: string;
-    },
-    userId: string
-  ) {
-    const product = await productRepository.findById(productId);
+async recordMovement(
+  productId: string,
+  input: {
+    type: "in" | "out" | "adjustment";
+    quantity: number;
+    note?: string;
+  },
+  userId: string
+) {
+  return prisma.$transaction(async (tx) => {
+    /* ==========================================
+       FIND PRODUCT
+    ========================================== */
+
+    const product = await tx.product.findUnique({
+      where: {
+        id: productId,
+      },
+    });
 
     if (!product) {
-      throw new NotFoundError("Produk tidak ditemukan");
+      throw new NotFoundError(
+        "Produk tidak ditemukan"
+      );
     }
 
+    /* ==========================================
+       VALIDATE STOCK OUT
+    ========================================== */
+
+    if (
+      input.type === "out" &&
+      input.quantity > product.quantity
+    ) {
+      throw new BadRequestError(
+        `Stok tidak mencukupi. Stok tersedia: ${product.quantity}`
+      );
+    }
+
+    /* ==========================================
+       CALCULATE STOCK
+    ========================================== */
+
     const delta =
-      input.type === "in"
-        ? input.quantity
-        : input.type === "out"
+      input.type === "out"
         ? -input.quantity
         : input.quantity;
 
-    const newQuantity = Math.max(
-      product.quantity + delta,
-      0
-    );
+    const newQuantity =
+      product.quantity + delta;
 
-    const [movement] = await prisma.$transaction([
-      prisma.stockMovement.create({
+    /* ==========================================
+       CREATE STOCK MOVEMENT
+    ========================================== */
+
+    const movement =
+      await tx.stockMovement.create({
         data: {
           productId,
+
           type: input.type,
+
           quantity: input.quantity,
+
           note: input.note,
+
           createdBy: userId,
         },
-      }),
+      });
 
-      prisma.product.update({
-        where: {
-          id: productId,
-        },
-        data: {
-          quantity: newQuantity,
-        },
-      }),
-    ]);
+    /* ==========================================
+       UPDATE PRODUCT QUANTITY
+    ========================================== */
+
+    await tx.product.update({
+      where: {
+        id: productId,
+      },
+
+      data: {
+        quantity: newQuantity,
+      },
+    });
+
+    /* ==========================================
+       ACTIVITY LOG
+    ========================================== */
+
+    await tx.activityLog.create({
+      data: {
+        userId,
+
+        actionType: "stock_movement",
+
+        referenceId: productId,
+
+        referenceType: "product",
+      },
+    });
 
     return {
       movement,
       newQuantity,
     };
-  },
+  });
+},
 
   listMovements: (productId: string) =>
     productRepository.findMovements(productId),

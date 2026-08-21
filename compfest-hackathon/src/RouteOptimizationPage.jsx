@@ -1,408 +1,126 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "./RouteOptimizationPage.css";
 import Sidebar from "./Sidebar.jsx";
-import {
-  Search,
-  Bell,
-  MessageSquare,
-  ChevronDown,
-  User,
-  RotateCw,
-  Plus,
-  Calendar,
-  Maximize2,
-  Minus,
-  LocateFixed,
-  Home,
-  Sparkles,
-  ArrowRight,
-  GripVertical,
-  MoreVertical,
-} from "lucide-react";
+import { Search, Bell, MessageSquare, ChevronDown, User, RotateCw, Plus, Calendar, Home, Sparkles, ArrowRight, GripVertical, MoreVertical, RefreshCw, X, CheckCircle2, SkipForward } from "lucide-react";
+import { routeApi } from "./lib/api";
+import { useAuth } from "./context/AuthContext.jsx";
 
-/* ------------------------------------------------------------------ */
-/*  DATA (contoh — nanti diganti hasil POST /routes/generate)          */
-/* ------------------------------------------------------------------ */
+const fmtKm = (v) => `${Number(v || 0).toFixed(1)} km`;
+const fmtDuration = (m) => `${Math.floor((m || 0) / 60)}h ${(m || 0) % 60}m`;
+const fmtTime = (v) => v ? new Date(v).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "—";
+const fmtDateInput = () => new Date().toISOString().slice(0, 10);
+const statusClass = (s) => s === "arrived" || s === "completed" ? "ro-badge--green" : s === "active" ? "ro-badge--blue" : "ro-badge--neutral";
 
-const STOPS = [
-  { id: 0, type: "warehouse", marker: "", name: "Warehouse A", address: "Jl. Industri Raya No.10, Jakarta", eta: "08:00", etaRange: "Departure", orders: "-", status: "Start", x: 13, y: 50 },
-  { id: 1, type: "delivery", marker: 1, name: "PT. Sejahtera Abadi", address: "Jl. Sudirman No.45, Jakarta", eta: "08:35", etaRange: "08:35 - 08:45", orders: 2, status: "On Time", x: 37, y: 22 },
-  { id: 2, type: "delivery", marker: 2, name: "Toko Makmur", address: "Jl. Gatot Subroto No.88, Jakarta", eta: "09:20", etaRange: "09:20 - 09:30", orders: 1, status: "On Time", x: 44, y: 66 },
-  { id: 3, type: "pickup", marker: 3, name: "Gudang Mitra", address: "Jl. Ahmad Yani No.120, Jakarta", eta: "10:05", etaRange: "10:05 - 10:20", orders: 1, status: "On Time", x: 62, y: 40 },
-  { id: 4, type: "delivery", marker: 4, name: "CV. Berkah Jaya", address: "Jl. Diponegoro No.33, Jakarta", eta: "10:50", etaRange: "10:50 - 11:00", orders: 2, status: "On Time", x: 78, y: 75 },
-  { id: 5, type: "customer", marker: 5, name: "PT. Maju Bersama", address: "Jl. MH Thamrin No.1, Jakarta", eta: "11:40", etaRange: "11:40", orders: 2, status: "End", x: 89, y: 58 },
-];
-
-const TYPE_META = {
-  warehouse: { color: "blue", label: "Warehouse (Start)" },
-  delivery: { color: "green", label: "Delivery Stop" },
-  pickup: { color: "amber", label: "Pickup Stop" },
-  customer: { color: "red", label: "Customer" },
-};
-
-const SUMMARY = {
-  distance: "48.6 km",
-  time: "2h 14m",
-  stops: "5",
-  orders: "8",
-  fuelSaving: "18%",
-  costSaving: "Rp 124.000",
-};
-
-const COMPARISON = [
-  { label: "Distance", current: "59.3 km", optimized: "48.6 km", pct: 82 },
-  { label: "Estimated Time", current: "2h 38m", optimized: "2h 14m", pct: 85 },
-  { label: "Fuel Cost", current: "Rp 229.000", optimized: "Rp 188.000", pct: 82 },
-];
-
-/* ------------------------------------------------------------------ */
-/*  COMPONENT                                                          */
-/* ------------------------------------------------------------------ */
+function normalizePoints(route) {
+  if (!route?.stops?.length) return [];
+  const depot = route.stops[0].order.originWarehouse;
+  const raw = [
+    { id: "depot", type: "warehouse", name: depot.name, address: depot.address, lat: Number(depot.latitude), lng: Number(depot.longitude) },
+    ...route.stops.map((s, i) => ({ id: s.id, type: "delivery", marker: i + 1, name: s.order.customerName, address: s.order.destinationAddress, lat: Number(s.order.destinationLat), lng: Number(s.order.destinationLng), stop: s })),
+  ];
+  const lats = raw.map((p) => p.lat), lngs = raw.map((p) => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats), minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  return raw.map((p) => ({ ...p, x: 10 + ((p.lng - minLng) / Math.max(maxLng - minLng, .001)) * 80, y: 85 - ((p.lat - minLat) / Math.max(maxLat - minLat, .001)) * 70 }));
+}
 
 export default function RouteOptimizationPage() {
-  const pathPoints = STOPS.map((s) => `${s.x},${s.y}`).join(" ");
+  const { accessToken, user } = useAuth();
+  const [routes, setRoutes] = useState([]);
+  const [options, setOptions] = useState({ vehicles: [], drivers: [], orders: [] });
+  const [selectedRouteId, setSelectedRouteId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ vehicleId: "", driverId: "", routeDate: fmtDateInput(), orderIds: [] });
 
-  return (
-    <div className="ro-page">
-      <Sidebar active="routes" />
+  const load = useCallback(async (preserve = true) => {
+    if (!accessToken) return;
+    setLoading(true); setError("");
+    try {
+      const [r, o] = await Promise.all([routeApi.list(accessToken), routeApi.options(accessToken)]);
+      const routeList = r.data || [];
+      setRoutes(routeList); setOptions(o.data || { vehicles: [], drivers: [], orders: [] });
+      setSelectedRouteId((prev) => preserve && routeList.some((x) => x.id === prev) ? prev : (routeList[0]?.id || ""));
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [accessToken]);
 
-      <main className="ro-main">
-        {/* ---------------- top bar ---------------- */}
-        <div className="ro-topbar">
-          <div>
-            <h1>Route Optimization</h1>
-            <p>AI-powered route planning for faster, smarter, and more efficient deliveries.</p>
-          </div>
+  useEffect(() => { load(false); }, [load]);
+  const route = useMemo(() => routes.find((r) => r.id === selectedRouteId) || routes[0] || null, [routes, selectedRouteId]);
+  const points = useMemo(() => normalizePoints(route), [route]);
+  const pathPoints = points.map((p) => `${p.x},${p.y}`).join(" ");
+  const filteredStops = useMemo(() => (route?.stops || []).filter((s) => `${s.order.customerName} ${s.order.destinationAddress}`.toLowerCase().includes(search.toLowerCase())), [route, search]);
+  const selectedWeight = useMemo(() => options.orders.filter((o) => form.orderIds.includes(o.id)).reduce((a, o) => a + Number(o.weightKg || 1), 0), [options.orders, form.orderIds]);
+  const vehicle = options.vehicles.find((v) => v.id === form.vehicleId);
 
-          <div className="ro-topbar__right">
-            <div className="ro-search">
-              <Search size={14} />
-              <input type="text" placeholder="Search anything..." />
-              <span className="ro-kbd">⌘K</span>
-            </div>
-            <button className="ro-icon-btn" aria-label="Notifikasi">
-              <Bell size={17} />
-              <span className="ro-icon-btn__badge">3</span>
-            </button>
-            <button className="ro-icon-btn" aria-label="Pesan">
-              <MessageSquare size={17} />
-            </button>
-            <button className="ro-user">
-              <span className="ro-user__avatar">
-                <User size={14} />
-              </span>
-              <span className="ro-user__meta">
-                <b>Admin User</b>
-                <small>Super Admin</small>
-              </span>
-              <ChevronDown size={14} />
-            </button>
-          </div>
+  const openCreate = () => {
+    const firstVehicle = options.vehicles[0];
+    setForm({ vehicleId: firstVehicle?.id || "", driverId: firstVehicle?.driverId || options.drivers[0]?.id || "", routeDate: fmtDateInput(), orderIds: [] });
+    setShowCreate(true);
+  };
+  const toggleOrder = (id) => setForm((f) => ({ ...f, orderIds: f.orderIds.includes(id) ? f.orderIds.filter((x) => x !== id) : [...f.orderIds, id] }));
+  const generate = async (e) => {
+    e.preventDefault(); setBusy(true); setError("");
+    try { const res = await routeApi.generate(form, accessToken); setShowCreate(false); await load(false); setSelectedRouteId(res.data.id); }
+    catch (e2) { setError(e2.message); }
+    finally { setBusy(false); }
+  };
+  const action = async (fn) => { setBusy(true); setError(""); try { await fn(); await load(true); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+
+  return <div className="ro-page">
+    <Sidebar active="routes" />
+    <main className="ro-main">
+      <div className="ro-topbar">
+        <div><h1>Route Optimization</h1><p>AI-powered route planning backed by live orders, vehicles, drivers, and route stops.</p></div>
+        <div className="ro-topbar__right">
+          <div className="ro-search"><Search size={14}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search customer/address..."/></div>
+          <button className="ro-icon-btn"><Bell size={17}/></button><button className="ro-icon-btn"><MessageSquare size={17}/></button>
+          <button className="ro-user"><span className="ro-user__avatar"><User size={14}/></span><span className="ro-user__meta"><b>{user?.name || "User"}</b><small>{user?.role || ""}</small></span><ChevronDown size={14}/></button>
         </div>
+      </div>
 
-        {/* ---------------- filter bar ---------------- */}
-        <div className="ro-filterbar">
-          <div className="ro-field">
-            <label>Route</label>
-            <button>
-              Route #RT-102 <ChevronDown size={13} />
-            </button>
-          </div>
-          <div className="ro-field">
-            <label>Date</label>
-            <button>
-              Aug 8, 2026 <Calendar size={13} />
-            </button>
-          </div>
-          <div className="ro-field">
-            <label>Vehicle</label>
-            <button>
-              Truck A-01 <ChevronDown size={13} />
-            </button>
-          </div>
-          <div className="ro-field">
-            <label>Driver</label>
-            <button>
-              <span className="ro-field__avatar">
-                <User size={11} />
-              </span>
-              Budi Santoso <ChevronDown size={13} />
-            </button>
-          </div>
+      {error && <div className="ro-alert">{error}<button onClick={()=>setError("")}><X size={14}/></button></div>}
 
-          <div className="ro-filterbar__actions">
-            <button className="ro-btn-outline">
-              <RotateCw size={14} /> Re-optimize Route
-            </button>
-            <button className="ro-btn-primary">
-              <Plus size={15} /> Create New Route
-            </button>
-          </div>
+      <div className="ro-filterbar">
+        <div className="ro-field"><label>Route</label><select value={route?.id || ""} onChange={(e)=>setSelectedRouteId(e.target.value)}><option value="">No route</option>{routes.map((r,i)=><option key={r.id} value={r.id}>Route #{String(routes.length-i).padStart(3,"0")} · {r.vehicle.plateNumber}</option>)}</select></div>
+        <div className="ro-field"><label>Date</label><button><Calendar size={13}/>{route ? new Date(route.routeDate).toLocaleDateString("id-ID") : "—"}</button></div>
+        <div className="ro-field"><label>Vehicle</label><button>{route?.vehicle?.plateNumber || "—"}</button></div>
+        <div className="ro-field"><label>Driver</label><button><User size={12}/>{route?.driver?.name || "—"}</button></div>
+        <div className="ro-filterbar__actions">
+          <button className="ro-btn-outline" disabled={!route || busy} onClick={()=>action(()=>routeApi.reoptimize(route.id, accessToken))}><RotateCw size={14}/> Re-optimize Route</button>
+          <button className="ro-btn-primary" onClick={openCreate}><Plus size={15}/> Create New Route</button>
+          <button className="ro-icon-btn" onClick={()=>load(true)} disabled={loading}><RefreshCw size={15}/></button>
         </div>
+      </div>
 
-        {/* ---------------- map + summary ---------------- */}
+      {!route ? <div className="ro-empty"><Sparkles size={26}/><h3>No route yet</h3><p>Create a route from pending orders to start optimization.</p><button className="ro-btn-primary" onClick={openCreate}><Plus size={15}/> Create New Route</button></div> : <>
         <div className="ro-body">
-          <div className="ro-card ro-map-card">
-            <div className="ro-map">
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="ro-map__bg">
-                <rect width="100" height="100" fill="#E9EFF4" />
-                <line x1="0" y1="20" x2="100" y2="15" className="ro-map__road" />
-                <line x1="10" y1="0" x2="30" y2="100" className="ro-map__road" />
-                <line x1="0" y1="60" x2="100" y2="55" className="ro-map__road" />
-                <line x1="60" y1="0" x2="55" y2="100" className="ro-map__road" />
-                <line x1="0" y1="85" x2="100" y2="90" className="ro-map__road" />
-              </svg>
-
-              <span className="ro-map__area" style={{ left: "46%", top: "10%" }}>
-                North Jakarta
-              </span>
-              <span className="ro-map__area" style={{ left: "68%", top: "30%" }}>
-                East Jakarta
-              </span>
-              <span className="ro-map__area" style={{ left: "14%", top: "88%" }}>
-                South Jakarta
-              </span>
-
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="ro-map__route">
-                <polyline points={pathPoints} className="ro-map__routeline" />
-              </svg>
-
-              {STOPS.map((s) => (
-                <div
-                  key={s.id}
-                  className={`ro-marker ro-marker--${TYPE_META[s.type].color}`}
-                  style={{ left: `${s.x}%`, top: `${s.y}%` }}
-                >
-                  {s.type === "warehouse" ? <Home size={13} /> : s.marker}
-                </div>
-              ))}
-
-              <div className="ro-legend">
-                <div className="ro-legend__title">Legend</div>
-                <div className="ro-legend__row">
-                  <span className="ro-legend__icon ro-legend__icon--blue">
-                    <Home size={11} />
-                  </span>
-                  Warehouse (Start)
-                </div>
-                <div className="ro-legend__row">
-                  <span className="ro-legend__dot ro-legend__dot--green" /> Delivery Stop
-                </div>
-                <div className="ro-legend__row">
-                  <span className="ro-legend__dot ro-legend__dot--amber" /> Pickup Stop
-                </div>
-                <div className="ro-legend__row">
-                  <span className="ro-legend__dot ro-legend__dot--red" /> Customer
-                </div>
-                <div className="ro-legend__row">
-                  <span className="ro-legend__line" /> Optimized Route
-                </div>
-              </div>
-
-              <div className="ro-map__controls">
-                <button aria-label="Fullscreen">
-                  <Maximize2 size={14} />
-                </button>
-                <button aria-label="Zoom in">
-                  <Plus size={14} />
-                </button>
-                <button aria-label="Zoom out">
-                  <Minus size={14} />
-                </button>
-                <button aria-label="Lokasi saya">
-                  <LocateFixed size={14} />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <aside className="ro-card ro-summary">
-            <div className="ro-summary__head">
-              <h3>Route Summary</h3>
-              <span className="ro-badge-ai">AI Optimized</span>
-            </div>
-
-            <div className="ro-summary__grid">
-              <div>
-                <span>Total Distance</span>
-                <b>{SUMMARY.distance}</b>
-              </div>
-              <div>
-                <span>Estimated Time</span>
-                <b>{SUMMARY.time}</b>
-              </div>
-              <div>
-                <span>Total Stops</span>
-                <b>{SUMMARY.stops}</b>
-              </div>
-              <div>
-                <span>Total Orders</span>
-                <b>{SUMMARY.orders}</b>
-              </div>
-              <div>
-                <span>Fuel Saving</span>
-                <b className="ro-text-green">{SUMMARY.fuelSaving}</b>
-                <small>vs current route</small>
-              </div>
-              <div>
-                <span>Cost Saving</span>
-                <b className="ro-text-green">{SUMMARY.costSaving}</b>
-                <small>vs current route</small>
-              </div>
-            </div>
-
-            <div className="ro-ai-box">
-              <div className="ro-ai-box__title">
-                <Sparkles size={13} /> AI Recommendation
-              </div>
-              <p>
-                This optimized route reduces distance by 18% and saves
-                approximately 24 minutes compared to your current route.
-              </p>
-              <button>
-                View Details <ArrowRight size={13} />
-              </button>
-            </div>
+          <div className="ro-card ro-map-card"><div className="ro-map">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="ro-map__bg"><rect width="100" height="100" fill="#E9EFF4"/><line x1="0" y1="20" x2="100" y2="15" className="ro-map__road"/><line x1="10" y1="0" x2="30" y2="100" className="ro-map__road"/><line x1="0" y1="60" x2="100" y2="55" className="ro-map__road"/><line x1="60" y1="0" x2="55" y2="100" className="ro-map__road"/></svg>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="ro-map__route"><polyline points={pathPoints} className="ro-map__routeline"/></svg>
+            {points.map((p)=><div title={p.name} key={p.id} className={`ro-marker ro-marker--${p.type === "warehouse" ? "blue" : "green"}`} style={{left:`${p.x}%`,top:`${p.y}%`}}>{p.type === "warehouse" ? <Home size={13}/> : p.marker}</div>)}
+            <div className="ro-legend"><div className="ro-legend__title">Live Route</div><div className="ro-legend__row"><span className="ro-legend__icon ro-legend__icon--blue"><Home size={11}/></span> Warehouse</div><div className="ro-legend__row"><span className="ro-legend__dot ro-legend__dot--green"/> Delivery Stop</div><div className="ro-legend__row"><span className="ro-legend__line"/> Optimized order</div></div>
+          </div></div>
+          <aside className="ro-card ro-summary"><div className="ro-summary__head"><h3>Route Summary</h3><span className="ro-badge-ai">{route.optimizedByAi ? "OR-Tools AI" : "Fallback Optimized"}</span></div>
+            <div className="ro-summary__grid"><div><span>Total Distance</span><b>{fmtKm(route.totalDistanceKm)}</b></div><div><span>Estimated Time</span><b>{fmtDuration(route.totalDurationMin)}</b></div><div><span>Total Stops</span><b>{route.stops.length}</b></div><div><span>Status</span><b>{route.status}</b></div><div><span>Vehicle</span><b>{route.vehicle.plateNumber}</b></div><div><span>Driver</span><b>{route.driver.name}</b></div></div>
+            <div className="ro-ai-box"><div className="ro-ai-box__title"><Sparkles size={13}/> AI Recommendation</div><p>Stops are sequenced from live destination coordinates. Re-optimize whenever pending stops change.</p><button onClick={()=>action(()=>routeApi.reoptimize(route.id, accessToken))}>Optimize Again <ArrowRight size={13}/></button></div>
+            <div className="ro-route-actions">{route.status === "planned" && <button className="ro-btn-primary" onClick={()=>action(()=>routeApi.updateStatus(route.id,"active",accessToken))}>Start Route</button>}{route.status === "active" && <button className="ro-btn-primary" onClick={()=>action(()=>routeApi.updateStatus(route.id,"completed",accessToken))}>Complete Route</button>}</div>
           </aside>
         </div>
 
-        {/* ---------------- bottom: stops / comparison / timeline ---------------- */}
-        <div className="ro-bottom">
-          {/* Route Stops */}
-          <div className="ro-card">
-            <div className="ro-card__head">
-              <h3>Route Stops ({STOPS.length - 1})</h3>
-              <button className="ro-filter-sm">
-                Optimize Order <ChevronDown size={12} />
-              </button>
-            </div>
-            <table className="ro-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>#</th>
-                  <th>Type</th>
-                  <th>Location</th>
-                  <th>ETA</th>
-                  <th>Order(s)</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {STOPS.map((s, i) => (
-                  <tr key={s.id}>
-                    <td className="ro-table__grip">
-                      <GripVertical size={13} />
-                    </td>
-                    <td className="ro-mono">{i === 0 ? "" : i}</td>
-                    <td>
-                      <span className={`ro-marker ro-marker--sm ro-marker--${TYPE_META[s.type].color}`}>
-                        {s.type === "warehouse" ? <Home size={11} /> : s.marker}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="ro-table__loc">{s.name}</div>
-                      <div className="ro-table__sub">{s.address}</div>
-                    </td>
-                    <td className="ro-mono">{s.eta}</td>
-                    <td>{s.orders}</td>
-                    <td>
-                      <span
-                        className={`ro-badge ${
-                          s.status === "Start"
-                            ? "ro-badge--blue"
-                            : s.status === "End"
-                            ? "ro-badge--neutral"
-                            : "ro-badge--green"
-                        }`}
-                      >
-                        {s.status}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="ro-more" aria-label="Opsi lain">
-                        <MoreVertical size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="ro-bottom"><div className="ro-card"><div className="ro-card__head"><h3>Route Stops ({route.stops.length})</h3><span className="ro-live-chip">LIVE DATABASE</span></div>
+          <table className="ro-table"><thead><tr><th></th><th>#</th><th>Location</th><th>Priority</th><th>Weight</th><th>ETA</th><th>Status</th><th>Action</th></tr></thead><tbody>{filteredStops.map((s)=><tr key={s.id}><td className="ro-table__grip"><GripVertical size={13}/></td><td className="ro-mono">{s.sequenceNo}</td><td><div className="ro-table__loc">{s.order.customerName}</div><div className="ro-table__sub">{s.order.destinationAddress}</div></td><td>{s.order.priority}</td><td>{Number(s.order.weightKg || 1).toFixed(0)} kg</td><td className="ro-mono">{fmtTime(s.eta)}</td><td><span className={`ro-badge ${statusClass(s.status)}`}>{s.status}</span></td><td><div className="ro-stop-actions"><button disabled={busy || s.status === "arrived"} title="Arrived" onClick={()=>action(()=>routeApi.updateStopStatus(route.id,s.id,"arrived",accessToken))}><CheckCircle2 size={15}/></button><button disabled={busy || s.status === "skipped"} title="Skip" onClick={()=>action(()=>routeApi.updateStopStatus(route.id,s.id,"skipped",accessToken))}><SkipForward size={15}/></button><button className="ro-more"><MoreVertical size={14}/></button></div></td></tr>)}</tbody></table>
+        </div></div>
+      </>}
 
-          {/* Route Comparison */}
-          <div className="ro-card">
-            <div className="ro-card__head">
-              <h3>Route Comparison</h3>
-            </div>
-            <div className="ro-compare-legend">
-              <span>
-                <i className="ro-dot ro-dot--gray" /> Current Route
-              </span>
-              <span>
-                <i className="ro-dot ro-dot--blue" /> Optimized Route (AI)
-              </span>
-            </div>
-
-            {COMPARISON.map((c) => (
-              <div className="ro-compare-row" key={c.label}>
-                <div className="ro-compare-row__head">
-                  <span>{c.label}</span>
-                  <b>{c.optimized}</b>
-                </div>
-                <div className="ro-compare-track">
-                  <div className="ro-compare-fill" style={{ width: `${c.pct}%` }} />
-                </div>
-                <div className="ro-compare-row__current">{c.current}</div>
-              </div>
-            ))}
-
-            <div className="ro-improvement">
-              <div className="ro-improvement__ring">
-                <svg viewBox="0 0 80 80">
-                  <circle cx="40" cy="40" r="34" className="ro-ring-track" />
-                  <circle
-                    cx="40"
-                    cy="40"
-                    r="34"
-                    className="ro-ring-fill"
-                    strokeDasharray={`${2 * Math.PI * 34}`}
-                    strokeDashoffset={`${2 * Math.PI * 34 * (1 - 0.18)}`}
-                  />
-                </svg>
-                <span>18%</span>
-              </div>
-              <div>
-                <b>Total Improvement</b>
-                <p>Great job! AI optimization helped you save time, distance, and fuel cost.</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Driver & Route Timeline */}
-          <div className="ro-card">
-            <div className="ro-card__head">
-              <h3>Driver & Route Timeline</h3>
-            </div>
-            <div className="ro-timeline">
-              {STOPS.map((s, i) => (
-                <div className="ro-timeline__step" key={s.id}>
-                  <span className={`ro-marker ro-marker--sm ro-marker--${TYPE_META[s.type].color}`}>
-                    {s.type === "warehouse" ? <Home size={10} /> : s.marker}
-                  </span>
-                  <div>
-                    <div className="ro-timeline__name">{s.name}</div>
-                    <div className="ro-timeline__eta">
-                      {i === 0 ? `${s.eta} · Departure` : `ETA ${s.etaRange}`}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
+      {showCreate && <div className="ro-modal-backdrop" onMouseDown={(e)=>{if(e.target===e.currentTarget)setShowCreate(false)}}><form className="ro-modal" onSubmit={generate}><div className="ro-modal__head"><div><h3>Create Optimized Route</h3><p>Select vehicle, driver, and pending orders.</p></div><button type="button" onClick={()=>setShowCreate(false)}><X size={18}/></button></div>
+        <div className="ro-form-grid"><label>Route Date<input type="date" value={form.routeDate} onChange={(e)=>setForm({...form,routeDate:e.target.value})} required/></label><label>Vehicle<select value={form.vehicleId} onChange={(e)=>{const v=options.vehicles.find(x=>x.id===e.target.value);setForm({...form,vehicleId:e.target.value,driverId:v?.driverId || form.driverId})}} required><option value="">Select vehicle</option>{options.vehicles.map(v=><option value={v.id} key={v.id}>{v.plateNumber} · {v.type} · {Number(v.capacityKg)} kg</option>)}</select></label><label>Driver<select value={form.driverId} onChange={(e)=>setForm({...form,driverId:e.target.value})} required><option value="">Select driver</option>{options.drivers.map(d=><option value={d.id} key={d.id}>{d.name}</option>)}</select></label></div>
+        <div className="ro-order-picker__head"><b>Pending Orders</b><span>{form.orderIds.length} selected · {selectedWeight.toFixed(0)} / {Number(vehicle?.capacityKg || 0).toFixed(0)} kg</span></div>
+        <div className="ro-order-picker">{options.orders.length ? options.orders.map(o=><label className={`ro-order-option ${form.orderIds.includes(o.id)?"is-selected":""}`} key={o.id}><input type="checkbox" checked={form.orderIds.includes(o.id)} onChange={()=>toggleOrder(o.id)}/><span><b>{o.customerName}</b><small>{o.destinationAddress}</small></span><em>{o.priority}<br/>{Number(o.weightKg||1)} kg</em></label>) : <p>No pending orders.</p>}</div>
+        <div className="ro-modal__actions"><button type="button" className="ro-btn-outline" onClick={()=>setShowCreate(false)}>Cancel</button><button type="submit" className="ro-btn-primary" disabled={busy || !form.orderIds.length || selectedWeight > Number(vehicle?.capacityKg || Infinity)}>{busy ? "Optimizing..." : "Generate AI Route"}</button></div>
+      </form></div>}
+    </main>
+  </div>;
 }

@@ -23,7 +23,7 @@ const createProductSchema = z.object({
 const movementSchema = z.object({
   type: z.enum(["in", "out", "adjustment"]),
   quantity: z.number().int().positive(),
-  note: z.string().optional(),
+  note: z.string().max(500).optional(),
 });
 
 export const warehouseController = {
@@ -55,15 +55,29 @@ export const warehouseController = {
     }
   },
 
-  async createProduct(req: Request, res: Response, next: NextFunction) {
-    try {
-      const input = createProductSchema.parse(req.body);
-      const data = await warehouseService.createProduct(req.params.id, input);
-      res.status(201).json({ success: true, data, message: "Produk berhasil ditambahkan" });
-    } catch (err) {
-      next(err);
-    }
-  },
+async createProduct(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const input = createProductSchema.parse(req.body);
+
+    const data = await warehouseService.createProduct(
+      req.params.id,
+      input,
+      req.user!.id
+    );
+
+    res.status(201).json({
+      success: true,
+      data,
+      message: "Produk berhasil ditambahkan",
+    });
+  } catch (err) {
+    next(err);
+  }
+},
 
   async listLowStock(_req: Request, res: Response, next: NextFunction) {
     try {
