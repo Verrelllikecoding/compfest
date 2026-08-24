@@ -591,7 +591,7 @@ export default function OpseraExactHero() {
         </div>
  
         <div className="oh-footer__bottom">
-          <span>Opsera © 2026 — Tim ZEUS67</span>
+          <span>Opsera © 2026 — Kurang Tidur</span>
           <span className="oh-footer__stack">Dibangun dengan {STACK.join(" · ")}</span>
         </div>
       </footer>
